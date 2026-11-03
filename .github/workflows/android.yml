@@ -1,4 +1,4 @@
-﻿name: Android fork
+name: Android fork
 
 on:
   push:
@@ -19,6 +19,9 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
       - name: Install pinned native toolchain
         run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'ndk;28.2.13676358' 'cmake;3.22.1'
       - uses: gradle/actions/setup-gradle@v4
