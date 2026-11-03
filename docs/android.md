@@ -14,7 +14,7 @@ Only Windows absolute paths with a known local equivalent are repaired: the two 
 - Gradle 8.11.1 (wrapper), Android Gradle Plugin 8.9.2
 - SDK 35 / Build Tools 35.0.0; target API 35, minimum API 21
 - NDK 28.2.13676358, CMake 3.22.1
-- SDL 2.32.10 on Android, with matching upstream Java sources (desktop versions unchanged)
+- SDL 2.32.10 on Android, with matching upstream Java sources (desktop versions unchanged). Local Java adjustments add Android 13+ USB receiver flags and annotate the existing API 26 dispatch classes. Lint permission exceptions are limited to unused/gated upstream Bluetooth and capture bridges.
 - ARMv7, ARM64, x86, x86-64 in one universal APK
 
 ```sh

@@ -470,6 +470,7 @@ class SDLJoystickHandler_API19 extends SDLJoystickHandler_API16 {
     }
 }
 
+@android.annotation.TargetApi(26)
 class SDLHapticHandler_API26 extends SDLHapticHandler {
     @Override
     public void run(int device_id, float intensity, int length) {
@@ -746,6 +747,7 @@ class SDLGenericMotionListener_API24 extends SDLGenericMotionListener_API12 {
     }
 }
 
+@android.annotation.TargetApi(26)
 class SDLGenericMotionListener_API26 extends SDLGenericMotionListener_API24 {
     // Generic Motion (mouse hover, joystick...) events go here
     private boolean mRelativeModeEnabled;

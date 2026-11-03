@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<lint>
+    <issue id="MissingPermission">
+        <!-- SDL gates Bluetooth initialization on permission in HIDDeviceManager.
+             This app does not declare Bluetooth permissions, so BLE is disabled. -->
+        <ignore path="src/main/java/org/libsdl/app/HIDDeviceManager.java" />
+        <ignore path="src/main/java/org/libsdl/app/HIDDeviceBLESteamController.java" />
+        <!-- Upstream's reusable audio bridge includes capture; Fallout only plays
+             audio and does not request or use microphone capture. -->
+        <ignore path="src/main/java/org/libsdl/app/SDLAudioManager.java" />
+    </issue>
+</lint>
