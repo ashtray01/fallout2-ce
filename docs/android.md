@@ -37,6 +37,8 @@ The NDK and packaging versions support [16 KB pages](https://developer.android.c
 
 ## Regression and device checks
 
+Robolectric startup checks run against APIs 28 and 35. The API 35 replace-existing-file test runs on Linux CI; Windows skips that one case because its host filesystem lacks POSIX rename-over-existing semantics.
+
 Unit tests cover missing, empty and mixed-case archives, interrupted-import markers, portable configuration paths, byte-for-byte copying, unknown source sizes, and truncated/unreadable sources without corrupting the destination.
 
 Before calling a release device-verified, check on the target phone/tablet:

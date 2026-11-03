@@ -42,6 +42,17 @@ public class FileUtilsTest {
         assertArrayEquals(bytes, Files.readAllBytes(dest.toPath()));
     }
 
+    @Test
+    @Config(sdk = 28)
+    public void replacesExistingArchive() throws Exception {
+        File src = folder.newFile("source.dat");
+        Files.write(src.toPath(), new byte[]{1, 2, 3});
+        File dest = folder.newFile("critter.dat");
+        Files.write(dest.toPath(), new byte[]{9});
+        FileUtils.copyFile(resolver(), source(src, 3), dest);
+        assertArrayEquals(new byte[]{1, 2, 3}, Files.readAllBytes(dest.toPath()));
+    }
+
     @Test public void truncatedStreamRestoresPreviousArchive() throws Exception {
         File src = folder.newFile("source.dat");
         Files.write(src.toPath(), new byte[]{1, 2});

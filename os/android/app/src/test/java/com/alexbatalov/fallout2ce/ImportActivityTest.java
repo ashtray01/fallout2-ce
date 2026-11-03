@@ -15,7 +15,7 @@ import static org.junit.Assert.*;
 import static org.robolectric.Shadows.shadowOf;
 
 @RunWith(RobolectricTestRunner.class)
-@Config(sdk = 35)
+@Config(sdk = {28, 35})
 public class ImportActivityTest {
     @Rule public TemporaryFolder folder = new TemporaryFolder();
     private static File storage;
@@ -40,11 +40,16 @@ public class ImportActivityTest {
     }
 
     @Test public void repairsConfigBeforeStartingGame() throws Exception {
+        // Android 10+ AtomicFile relies on POSIX rename-over-existing. Robolectric
+        // uses the host filesystem, so this case must run on Linux for API 35.
+        org.junit.Assume.assumeFalse(android.os.Build.VERSION.SDK_INT >= 29
+            && System.getProperty("os.name").startsWith("Windows"));
         storage = folder.getRoot();
         write("master.dat", "data");
         write("critter.dat", "data");
         String original = "[system]\ncritter_dat=C:\\Games\\Fallout2\\critter.dat\n";
         write("fallout2.cfg", original);
+        assertNotEquals("Direct config repair", original, GameData.portableConfig(original, storage));
         try (org.robolectric.android.controller.ActivityController<TestActivity> controller =
                 Robolectric.buildActivity(TestActivity.class).create()) {
             assertEquals(MainActivity.class.getName(),

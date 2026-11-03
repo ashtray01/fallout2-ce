@@ -6,6 +6,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -36,7 +40,11 @@ jobs:
           printf '%s' "$PROPERTIES" | base64 --decode > os/android/release-keystore.properties
       - name: Test, lint and build
         working-directory: os/android
-        run: ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug
+        run: ./gradlew --no-daemon testDebugUnitTest lintDebug
+      - name: Build pull request APK
+        if: github.event_name == 'pull_request'
+        working-directory: os/android
+        run: ./gradlew --no-daemon assembleDebug
       - name: Build signed release
         if: github.event_name != 'pull_request'
         working-directory: os/android
