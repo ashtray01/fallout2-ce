@@ -11,9 +11,15 @@ endif()
 
 include(FetchContent)
 
+if(ANDROID)
+    set(FALLOUT_SDL_TAG "release-2.32.10")
+else()
+    set(FALLOUT_SDL_TAG "release-2.26.1")
+endif()
+
 FetchContent_Declare(sdl2
     GIT_REPOSITORY "https://github.com/libsdl-org/SDL"
-    GIT_TAG "release-2.26.1"
+    GIT_TAG "${FALLOUT_SDL_TAG}"
     GIT_SHALLOW TRUE
     GIT_PROGRESS TRUE
     EXCLUDE_FROM_ALL
