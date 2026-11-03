@@ -3,14 +3,16 @@ plugins {
 }
 
 android {
-    compileSdk 32
+    namespace 'com.alexbatalov.fallout2ce'
+    compileSdk 35
+    ndkVersion '28.2.13676358'
 
     defaultConfig {
-        applicationId 'com.alexbatalov.fallout2ce'
+        applicationId 'io.github.ashtray01.fallout2ce'
         minSdk 21
-        targetSdk 32
-        versionCode 4
-        versionName '1.3.0'
+        targetSdk 35
+        versionCode 5
+        versionName '1.3.1-android.1'
         externalNativeBuild {
             cmake {
                 arguments '-DANDROID_STL=c++_static'
@@ -72,15 +74,15 @@ android {
         }
     }
 
+    testOptions {
+        unitTests.includeAndroidResources = true
+    }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
     }
 
-    applicationVariants.all { variant ->
-        tasks["merge${variant.name.capitalize()}Assets"]
-            .dependsOn("externalNativeBuild${variant.name.capitalize()}")
-    }
 
     if (!project.hasProperty('EXCLUDE_NATIVE_LIBS')) {
         sourceSets.main {
@@ -89,12 +91,16 @@ android {
         externalNativeBuild {
             cmake {
                 path '../../../CMakeLists.txt'
+                version '3.22.1'
             }
         }
     }
 }
 
 dependencies {
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.robolectric:robolectric:4.14.1'
+    testImplementation 'org.mockito:mockito-core:4.11.0'
     implementation fileTree(include: ['*.jar'], dir: 'libs')
     implementation 'androidx.documentfile:documentfile:1.0.1'
 }

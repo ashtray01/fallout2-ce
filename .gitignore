@@ -392,3 +392,6 @@ FodyWeavers.xsd
 /out
 /build
 CMakeUserPresets.json
+
+# Local, proprietary game data (never publish)
+/Fallout2/

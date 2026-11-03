@@ -2,4 +2,12 @@
     <string name="app_name">Fallout 2</string>
     <string name="loading_dialog_title">PLEASE STAND BY</string>
     <string name="loading_dialog_message">Copying files…</string>
+    <string name="import_missing_archives">Select the installed game folder containing both master.dat and critter.dat directly inside it (not a parent folder or an installer). Empty or unreadable archives cannot be used.</string>
+    <string name="import_storage_unavailable">App storage is unavailable. Reconnect the storage and try again.</string>
+    <string name="import_copying">Copying: %1$s</string>
+    <string name="import_error_title">Game data could not be imported</string>
+    <string name="import_error_message">%1$s
+
+Check folder access and free storage space, then retry. The game has not been started.</string>
+    <string name="import_retry">Choose folder again</string>
 </resources>

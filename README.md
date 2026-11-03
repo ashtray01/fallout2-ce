@@ -1,3 +1,15 @@
+# Fallout 2 CE ? Android fork
+
+Android-focused fork of [alexbatalov/fallout2-ce](https://github.com/alexbatalov/fallout2-ce), maintained in [ashtray01/fallout2-ce](https://github.com/ashtray01/fallout2-ce).
+
+This fork fixes importing a Windows installation whose `fallout2.cfg` still points to `C:\...` or a CD drive. It validates archives before starting SDL, recognizes filename case, reports copy errors, and prevents starting an interrupted import. Existing on-device savegame directories are preserved during a repair import. Original configuration is backed up as `fallout2.cfg.before-android` before path repair.
+
+The app ID is `io.github.ashtray01.fallout2ce`: it installs alongside the upstream APK and has separate game data and saves. The APK contains no commercial game assets. Download builds from this fork's Releases; import your legally owned installation using the system folder picker.
+
+See [Android build and verification notes](docs/android.md) for build requirements, validation, and device checks.
+
+---
+
 # Fallout 2 Community Edition
 
 Fallout 2 Community Edition is a fully working re-implementation of Fallout 2, with the same original gameplay, engine bugfixes, and some quality of life improvements, that works (mostly) hassle-free on multiple platforms.

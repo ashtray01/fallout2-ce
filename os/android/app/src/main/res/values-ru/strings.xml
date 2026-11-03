@@ -1,0 +1,11 @@
+﻿<resources>
+    <string name="app_name">Fallout 2</string>
+    <string name="loading_dialog_title">ПОЖАЛУЙСТА, ПОДОЖДИТЕ</string>
+    <string name="loading_dialog_message">Копирование файлов…</string>
+    <string name="import_missing_archives">Выберите папку установленной игры, в которой непосредственно находятся master.dat и critter.dat, а не родительскую папку или установщик. Пустые или недоступные файлы использовать нельзя.</string>
+    <string name="import_storage_unavailable">Хранилище приложения недоступно. Подключите его и повторите попытку.</string>
+    <string name="import_copying">Копирование: %1$s</string>
+    <string name="import_error_title">Не удалось импортировать игру</string>
+    <string name="import_error_message">%1$s\n\nПроверьте доступ к папке и свободное место, затем повторите попытку. Игра не была запущена.</string>
+    <string name="import_retry">Выбрать папку снова</string>
+</resources>

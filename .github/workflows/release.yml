@@ -11,6 +11,7 @@ defaults:
 
 jobs:
   android:
+    if: github.repository == 'alexbatalov/fallout2-ce'
     name: Android
 
     runs-on: ubuntu-latest
@@ -23,7 +24,7 @@ jobs:
         uses: actions/setup-java@v3
         with:
           distribution: temurin
-          java-version: 11
+          java-version: 17
           cache: gradle
 
       - name: Cache cmake build
@@ -57,6 +58,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   ios:
+    if: github.repository == 'alexbatalov/fallout2-ce'
     name: iOS
 
     runs-on: macos-12
@@ -105,6 +107,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   linux:
+    if: github.repository == 'alexbatalov/fallout2-ce'
     name: Linux (${{ matrix.arch }})
 
     runs-on: ubuntu-20.04
@@ -174,6 +177,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   macos:
+    if: github.repository == 'alexbatalov/fallout2-ce'
     name: macOS
 
     runs-on: macos-11
@@ -241,6 +245,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   windows:
+    if: github.repository == 'alexbatalov/fallout2-ce'
     name: Windows (${{ matrix.arch }})
 
     runs-on: windows-2019

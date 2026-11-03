@@ -15,6 +15,7 @@ defaults:
 
 jobs:
   static-analysis:
+    if: github.repository == 'alexbatalov/fallout2-ce'
     name: Static analysis
 
     runs-on: ubuntu-latest
@@ -32,6 +33,7 @@ jobs:
         run: cppcheck --std=c++17 src/
 
   code-format:
+    if: github.repository == 'alexbatalov/fallout2-ce'
     name: Code format check
 
     runs-on: ubuntu-latest
@@ -44,6 +46,7 @@ jobs:
         run: find src -type f -name \*.cc -o -name \*.h | xargs clang-format --dry-run --Werror
 
   android:
+    if: github.repository == 'alexbatalov/fallout2-ce'
     name: Android
 
     runs-on: ubuntu-latest
@@ -56,7 +59,7 @@ jobs:
         uses: actions/setup-java@v3
         with:
           distribution: temurin
-          java-version: 11
+          java-version: 17
           cache: gradle
 
       - name: Cache cmake build
@@ -88,6 +91,7 @@ jobs:
           retention-days: 7
 
   ios:
+    if: github.repository == 'alexbatalov/fallout2-ce'
     name: iOS
 
     runs-on: macos-13
@@ -123,6 +127,7 @@ jobs:
           retention-days: 7
 
   linux:
+    if: github.repository == 'alexbatalov/fallout2-ce'
     name: Linux (${{ matrix.arch }})
 
     runs-on: ubuntu-22.04
@@ -173,6 +178,7 @@ jobs:
           retention-days: 7
 
   linux-armhf:
+    if: github.repository == 'alexbatalov/fallout2-ce'
     name: Linux (armhf)
 
     runs-on: ubuntu-22.04-arm
@@ -209,6 +215,7 @@ jobs:
           retention-days: 7
 
   linux-arm64:
+    if: github.repository == 'alexbatalov/fallout2-ce'
     name: Linux (arm64)
 
     runs-on: ubuntu-22.04-arm
@@ -236,6 +243,7 @@ jobs:
           retention-days: 7
 
   macos:
+    if: github.repository == 'alexbatalov/fallout2-ce'
     name: macOS
 
     runs-on: macos-13
@@ -271,6 +279,7 @@ jobs:
           retention-days: 7
 
   windows:
+    if: github.repository == 'alexbatalov/fallout2-ce'
     name: Windows (${{ matrix.arch }})
 
     runs-on: windows-2019
