@@ -82,15 +82,20 @@ public:
         end(x_, y_, true);
     }
 
-    // One physical side-button edge produces one complete right click. Contact
-    // has priority: an edge during a stroke is ignored so that the in-progress
-    // left click or drag cannot turn into an unrelated action.
+    // One physical side-button edge produces one complete right click. When the
+    // tip is already down, the left stroke is discarded: left-up and right-down
+    // are reported in the same engine update, so the right-click branch runs
+    // first and the released left button cannot execute an unrelated action.
     void sideButton(int x, int y)
     {
-        if (touching_)
-            return;
         x_ = x;
         y_ = y;
+        if (touching_) {
+            touching_ = false;
+            emit(x, y, kRightButton, true);
+            emit(x, y, 0, true);
+            return;
+        }
         emit(x, y, 0);
         emit(x, y, kRightButton, true);
         emit(x, y, 0, true);

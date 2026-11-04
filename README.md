@@ -6,7 +6,7 @@ This fork fixes importing a Windows installation whose `fallout2.cfg` still poin
 
 The app ID is `io.github.ashtray01.fallout2ce`: it installs alongside the upstream APK and has separate game data and saves. The APK contains no commercial game assets. Download builds from this fork's Releases; import your legally owned installation using the system folder picker.
 
-Stylus control uses the pen as an absolute mouse pointer: hover moves the game cursor, tap is one left click, drag holds the left button, and the side button is one right click (Movement → Command → Targeting cursors). Holding the pen keeps the left button down, so Fallout's original action menu opens after the engine's repeat delay; move the pen to choose an entry and lift it to execute. Palm contact is ignored during a pen stroke. Finger input retains trackpad behavior, and mice and keyboards are unaffected.
+Stylus control uses the pen as an absolute mouse pointer: hover moves the game cursor, tap is one left click, drag holds the left button, and the side button is one right click (all Android button channels, including key-event pens). Holding the pen keeps the left button down, so Fallout's original action menu opens after the engine's repeat delay; move the pen to choose an entry and lift it to execute. Palm contact is ignored during a pen stroke. Finger input retains trackpad behavior, and mice and keyboards are unaffected.
 
 See [Android build and verification notes](docs/android.md) for build requirements, validation, and device checks, and [the manual stylus checklist](docs/stylus-manual-test.md) for on-device verification.
 

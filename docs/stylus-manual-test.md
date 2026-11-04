@@ -24,8 +24,10 @@ Tested hardware for this release: none. The build is verified on Linux CI and wi
 - [ ] Press again: Command → Movement.
 - [ ] In combat with a weapon drawn, press the side button twice: Movement → Command → Targeting.
 - [ ] Press again: Targeting → Movement.
-- [ ] While the pen tip is touching the screen, press the side button: no cursor switch and no unexpected action.
+- [ ] Touch the screen and press the side button immediately (within ~200 ms): exactly one cursor switch, and the tap does not move the character or perform an action.
+- [ ] Touch and hold for one second, then press the side button: the hold keeps its stroke/menu and no right click happens.
 - [ ] Press and hold the side button for two seconds: exactly one cursor switch.
+- [ ] If the button does nothing, capture `adb logcat -s SDL` while pressing it and attach the lines: pen events, button/scroll events and stylus key events (308–310) are logged with source, tool type, button state and device id. No line means Android does not deliver the button to the app.
 
 ## Action menu (hold)
 

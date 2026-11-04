@@ -8,6 +8,7 @@ import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
 import android.os.Build;
+import android.os.SystemClock;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.Display;
@@ -39,18 +40,42 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
 
     // MotionEvent stylus button symbols appeared after the minimum SDK. The
     // numeric values are stable and are inlined by the compiler.
+    private static final int BUTTON_PRIMARY_VALUE = 1 << 0;
     private static final int BUTTON_SECONDARY_VALUE = 1 << 1;
+    private static final int BUTTON_TERTIARY_VALUE = 1 << 2;
     private static final int BUTTON_STYLUS_PRIMARY_VALUE = 1 << 5;
     private static final int BUTTON_STYLUS_SECONDARY_VALUE = 1 << 6;
     private static final int STYLUS_BUTTON_MASK =
             BUTTON_STYLUS_PRIMARY_VALUE | BUTTON_STYLUS_SECONDARY_VALUE | BUTTON_SECONDARY_VALUE;
+    // While hovering, a barrel button may be mapped to the primary or tertiary
+    // mouse button. The tip alone does not produce hover, so this is safe.
+    private static final int STYLUS_HOVER_BUTTON_MASK =
+            STYLUS_BUTTON_MASK | BUTTON_PRIMARY_VALUE | BUTTON_TERTIARY_VALUE;
     private static final int ACTION_BUTTON_PRESS_VALUE = 11;
     private static final int ACTION_BUTTON_RELEASE_VALUE = 12;
 
+    // Android 14+ Bluetooth pens report barrel buttons as key events.
+    private static final int KEYCODE_STYLUS_BUTTON_PRIMARY_VALUE = 308;
+    private static final int KEYCODE_STYLUS_BUTTON_SECONDARY_VALUE = 309;
+    private static final int KEYCODE_STYLUS_BUTTON_TERTIARY_VALUE = 310;
+
+    // A press right after contact may cancel the young left stroke. The engine
+    // opens its action menu after 250 ms, so staying below that value guarantees
+    // the stroke cannot turn into a menu selection.
+    private static final long SIDE_BUTTON_CONTACT_GRACE_MS = 200;
+    // One physical press can be reported by several Android channels at once.
+    private static final long SIDE_BUTTON_DEDUP_MS = 120;
+    // A scroll-based barrel button produces a burst; one burst is one press.
+    private static final long PEN_SCROLL_RELEASE_MS = 250;
+
     private StylusConfig mStylusConfig = StylusConfig.DEFAULT;
     private int stylusPointer = -1;
-    private float stylusX;
-    private float stylusY;
+    private int stylusDeviceId = -1;
+    private float stylusX = 0.5f;
+    private float stylusY = 0.5f;
+    private long stylusContactUptime;
+    private long lastSideButtonClickUptime = -SIDE_BUTTON_DEDUP_MS;
+    private long lastPenScrollUptime = -PEN_SCROLL_RELEASE_MS;
     private boolean stylusHoverActive;
     private boolean stylusSideButtonDown;
 
@@ -356,12 +381,21 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
         return super.dispatchHoverEvent(event);
     }
 
-    private static boolean isPenPointer(MotionEvent event, int pointerIndex) {
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        if (handleStylusButtonKey(event)) {
+            return true;
+        }
+        return super.dispatchKeyEvent(event);
+    }
+
+    private boolean isPenPointer(MotionEvent event, int pointerIndex) {
         if (pointerIndex < 0 || pointerIndex >= event.getPointerCount()) {
             return false;
         }
         int toolType = event.getToolType(pointerIndex);
         if (toolType == MotionEvent.TOOL_TYPE_STYLUS || toolType == MotionEvent.TOOL_TYPE_ERASER) {
+            stylusDeviceId = event.getDeviceId();
             return true;
         }
         if (toolType == MotionEvent.TOOL_TYPE_FINGER) {
@@ -369,11 +403,17 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
             // so a finger pointer must never become the pen.
             return false;
         }
-        // Devices without a tool type still identify an active pen by source.
-        return (event.getSource() & InputDevice.SOURCE_STYLUS) == InputDevice.SOURCE_STYLUS;
+        if ((event.getSource() & InputDevice.SOURCE_STYLUS) == InputDevice.SOURCE_STYLUS) {
+            stylusDeviceId = event.getDeviceId();
+            return true;
+        }
+        // Some digitizers label the barrel button, hover or scroll of an already
+        // seen pen as a mouse. The device id ties those events back to the pen;
+        // fingers and real mice keep their own device ids.
+        return stylusDeviceId != -1 && event.getDeviceId() == stylusDeviceId;
     }
 
-    private static int findPenPointerIndex(MotionEvent event) {
+    private int findPenPointerIndex(MotionEvent event) {
         for (int i = 0; i < event.getPointerCount(); ++i) {
             if (isPenPointer(event, i)) {
                 return i;
@@ -414,6 +454,15 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
             pen = isPenPointer(event, index);
         }
 
+        if (pen && (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_UP
+                || action == MotionEvent.ACTION_CANCEL
+                || action == ACTION_BUTTON_PRESS_VALUE || action == ACTION_BUTTON_RELEASE_VALUE
+                || action == MotionEvent.ACTION_SCROLL)) {
+            Log.i("SDL", "stylus action=" + action + " source=" + event.getSource()
+                    + " tool=" + event.getToolType(index) + " buttons=" + event.getButtonState()
+                    + " device=" + event.getDeviceId());
+        }
+
         if (!pen) {
             if (!strokeActive) {
                 return false; // Fingers, mice and keyboards keep upstream routing.
@@ -425,6 +474,17 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
             boolean fingerLike = toolType == MotionEvent.TOOL_TYPE_FINGER
                     || toolType == MotionEvent.TOOL_TYPE_UNKNOWN;
             return mStylusConfig.palmRejection && fingerLike;
+        }
+
+        if (action == MotionEvent.ACTION_SCROLL) {
+            // Some barrel buttons are reported as a scroll wheel. A real mouse
+            // wheel has a different device id and still scrolls the game.
+            long now = SystemClock.uptimeMillis();
+            if (now - lastPenScrollUptime > PEN_SCROLL_RELEASE_MS) {
+                sideButtonPressed(event.getX(index), event.getY(index));
+            }
+            lastPenScrollUptime = now;
+            return true;
         }
 
         if (!strokeActive
@@ -446,12 +506,15 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
                 stylusPointer = event.getPointerId(index);
                 stylusX = event.getX(index) / mWidth;
                 stylusY = event.getY(index) / mHeight;
+                stylusContactUptime = SystemClock.uptimeMillis();
                 stylusHoverActive = false;
-                updateStylusSideButton(event, event.getX(index), event.getY(index));
                 // Contact presses immediately. Holding the pen then feeds the
                 // engine's repeat timer, which opens the original action menu.
                 sendStylus(STYLUS_TOUCH_DEVICE_ID, stylusPointer, MotionEvent.ACTION_DOWN,
                         stylusX, stylusY, 1.0f);
+                // Done after the contact so a button already down at touch is
+                // combined with the active stroke by the native side.
+                updateStylusSideButton(event, event.getX(index), event.getY(index));
                 return true;
             }
 
@@ -489,8 +552,8 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
 
             case ACTION_BUTTON_PRESS_VALUE:
             case ACTION_BUTTON_RELEASE_VALUE:
-                // Side button while hovering. `getButtonState` already reports
-                // the state after the edge, so no extra press tracking is needed.
+                // The action identifies the edge even on devices that do not
+                // populate `getButtonState()` on button events.
                 updateStylusSideButton(event, event.getX(index), event.getY(index));
                 return true;
 
@@ -505,12 +568,15 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
     }
 
     private boolean handleStylusHover(MotionEvent event, int action, int index) {
+        float x = event.getX(index);
+        float y = event.getY(index);
+        // Barrel-button edges can also arrive on hover events. This must run
+        // even when hover cursor tracking is disabled.
+        updateStylusSideButton(event, x, y);
         if (!mStylusConfig.hover) {
             return true; // Consume pen events without moving the cursor.
         }
 
-        float x = event.getX(index);
-        float y = event.getY(index);
         if (action == MotionEvent.ACTION_HOVER_EXIT) {
             if (stylusHoverActive) {
                 sendStylus(STYLUS_HOVER_DEVICE_ID, 0, MotionEvent.ACTION_UP,
@@ -531,31 +597,97 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
     }
 
     private void updateStylusSideButton(MotionEvent event, float x, float y) {
-        boolean pressed = (event.getButtonState() & STYLUS_BUTTON_MASK) != 0;
+        final int action = event.getActionMasked();
+        boolean pressed;
+        if (action == ACTION_BUTTON_PRESS_VALUE) {
+            // The action itself identifies the edge; some devices leave
+            // `getButtonState()` at 0 on ACTION_BUTTON_PRESS.
+            pressed = true;
+        } else if (action == ACTION_BUTTON_RELEASE_VALUE) {
+            pressed = false;
+        } else {
+            int mask = STYLUS_BUTTON_MASK;
+            if (action == MotionEvent.ACTION_HOVER_ENTER || action == MotionEvent.ACTION_HOVER_MOVE) {
+                mask = STYLUS_HOVER_BUTTON_MASK;
+            }
+            pressed = (event.getButtonState() & mask) != 0;
+        }
+
         if (pressed == stylusSideButtonDown) {
             // Duplicate delivery of one physical edge, or a held button.
             return;
         }
         stylusSideButtonDown = pressed;
 
-        if (!pressed || !mStylusConfig.sideButtonRightClick) {
-            return;
+        if (pressed) {
+            sideButtonPressed(x, y);
         }
+    }
 
-        if (stylusPointer != -1) {
-            // Priority rule: an active pen stroke wins. A click or a drag in
-            // progress is never rewritten by the side button.
-            return;
+    private boolean sideButtonPressed(float x, float y) {
+        if (!mStylusConfig.sideButtonRightClick) {
+            return false;
         }
 
         float normalizedX = x / mWidth;
         float normalizedY = y / mHeight;
+
+        if (stylusPointer == -1) {
+            return emitSideButtonClick(normalizedX, normalizedY);
+        }
+
+        long now = SystemClock.uptimeMillis();
+        if (now - stylusContactUptime >= SIDE_BUTTON_CONTACT_GRACE_MS) {
+            // The engine's repeat timer may already own the stroke (action
+            // menu). Keep the stroke intact and ignore this edge.
+            Log.i("SDL", "stylus button ignored: stroke is already held");
+            return false;
+        }
+
+        int contactPointer = stylusPointer;
+        if (!emitSideButtonClick(normalizedX, normalizedY)) {
+            return false;
+        }
+        // The native side discards the stroke as part of the right click. This
+        // cancel only cleans up the synthetic SDL finger and is a no-op there.
+        stylusPointer = -1;
+        sendStylus(STYLUS_TOUCH_DEVICE_ID, contactPointer, MotionEvent.ACTION_UP,
+                normalizedX, normalizedY, -1.0f);
+        return true;
+    }
+
+    private boolean emitSideButtonClick(float normalizedX, float normalizedY) {
+        long now = SystemClock.uptimeMillis();
+        if (now - lastSideButtonClickUptime < SIDE_BUTTON_DEDUP_MS) {
+            return false;
+        }
+        lastSideButtonClickUptime = now;
+        Log.i("SDL", "stylus right click at " + normalizedX + "," + normalizedY);
         // A complete press/release pair per edge: holding the physical button
         // cannot repeat the cursor switch.
         sendStylus(STYLUS_BUTTON_DEVICE_ID, 0, MotionEvent.ACTION_DOWN,
                 normalizedX, normalizedY, 1.0f);
         sendStylus(STYLUS_BUTTON_DEVICE_ID, 0, MotionEvent.ACTION_UP,
                 normalizedX, normalizedY, 1.0f);
+        return true;
+    }
+
+    boolean handleStylusButtonKey(KeyEvent event) {
+        final int keyCode = event.getKeyCode();
+        if (keyCode != KEYCODE_STYLUS_BUTTON_PRIMARY_VALUE
+                && keyCode != KEYCODE_STYLUS_BUTTON_SECONDARY_VALUE
+                && keyCode != KEYCODE_STYLUS_BUTTON_TERTIARY_VALUE) {
+            return false;
+        }
+
+        Log.i("SDL", "stylus key=" + keyCode + " action=" + event.getAction()
+                + " repeat=" + event.getRepeatCount() + " device=" + event.getDeviceId());
+
+        if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
+            sideButtonPressed(stylusX * mWidth, stylusY * mHeight);
+        }
+        // Never forward barrel buttons to the game as keyboard input.
+        return true;
     }
 
     private static float clampPressure(float pressure) {

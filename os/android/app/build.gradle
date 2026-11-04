@@ -11,8 +11,8 @@ android {
         applicationId 'io.github.ashtray01.fallout2ce'
         minSdk 21
         targetSdk 35
-        versionCode 6
-        versionName '1.3.2-android.1'
+        versionCode 7
+        versionName '1.3.2-android.2'
         externalNativeBuild {
             cmake {
                 arguments '-DANDROID_STL=c++_static'

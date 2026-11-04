@@ -61,15 +61,18 @@ The pen drives the game cursor with the same mouse state stream a desktop mouse 
 
 - **Hover** (`ACTION_HOVER_ENTER`/`MOVE`/`EXIT`): the game cursor follows the pen tip without pressing a button. Hovering over an object shows its default action and information exactly as on PC.
 - **Tap** (`ACTION_DOWN`/`MOVE`/`UP`): the left button is pressed immediately at the pen position and released on lift, so a tap is one normal left click and a drag holds the left button.
-- **Side button**: one physical press is exactly one right click. `BUTTON_STYLUS_PRIMARY`, `BUTTON_STYLUS_SECONDARY`, and devices that translate the pen button to `BUTTON_SECONDARY` are all accepted. Right click cycles the original cursors: Movement → Command → Movement outside combat and Movement → Command → Targeting → Movement in combat. The engine still decides whether Targeting is allowed (weapons, combat, active item); the mod does not force it.
+- **Side button**: one physical press is exactly one right click. All Android channels are accepted: `BUTTON_STYLUS_PRIMARY`, `BUTTON_STYLUS_SECONDARY`, `BUTTON_SECONDARY`, `BUTTON_PRIMARY`/`BUTTON_TERTIARY` while hovering, `ACTION_BUTTON_PRESS`/`ACTION_BUTTON_RELEASE` even when `buttonState` is not reported, Android 14+ stylus key events (`KEYCODE_STYLUS_BUTTON_PRIMARY`/`SECONDARY`/`TERTIARY`, 308–310), and barrel buttons that some digitizers report as `ACTION_SCROLL` from the pen device. Right click cycles the original cursors: Movement → Command → Movement outside combat and Movement → Command → Targeting → Movement in combat. The engine still decides whether Targeting is allowed (weapons, combat, active item); the mod does not force it.
 - **Hold** (about 250 ms, the engine's own `BUTTON_REPEAT_TIME`): the left button stays held, so Fallout's original action menu opens. Moving the pen up or down while still touching highlights the original menu entries; lifting the pen executes the selected action. There is no extra synthetic click after the menu closes.
 - **Context menus** in the inventory, trading and other screens use the same mouse sequence and keep working.
 - **Palm rejection**: while a pen stroke is active, finger pointers are ignored. The pen is never blocked permanently: cancellation, focus loss, backgrounding and surface destruction release the button, and finger input resumes immediately afterwards.
 - **Absolute positioning**: `MotionEvent` coordinates are normalised by the current surface size, so letterboxing, the internal Fallout resolution and both orientations are handled by the existing rendering transform.
 
-The side button has one priority rule: while the pen tip is touching the screen, side-button edges are tracked but do not issue a right click. This prevents an in-progress tap or drag from turning into an unrelated action. Press the side button while the pen is in hover range to switch cursors.
+Side-button priority is deterministic. While the pen is in hover range, every edge is a right click. If the edge arrives in the first 200 ms of contact, it still becomes a right click and the young left stroke is cancelled: the native side releases left and presses right in the same engine update, so the engine handles the right click before it can act on the released left button. After that window the engine's repeat timer may own the stroke (the action menu), so the edge is ignored to protect the menu. Without this rule a right click during a held left button could execute an unrelated action in the newly selected cursor mode.
 
 Some pens do not expose hover or a side button to Android at all, and some digitizers translate the button to `BUTTON_SECONDARY` instead of `BUTTON_STYLUS_PRIMARY`; the code supports both cases, but the hardware cannot be emulated. The arrow/hex cursor in game always follows the pen when absolute positioning is available.
+
+For diagnosing a specific pen, `adb logcat -s SDL` prints pen down/up/cancel, button/scroll events, and stylus key events with their source, tool type, button state and device id. One line per press is expected; no line at all means Android does not deliver the button to the app.
+
 
 ### Pen input configuration
 

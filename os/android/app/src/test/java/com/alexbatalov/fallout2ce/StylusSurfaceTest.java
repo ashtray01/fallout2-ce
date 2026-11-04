@@ -2,8 +2,10 @@ package com.alexbatalov.fallout2ce;
 
 import android.content.Context;
 import android.view.InputDevice;
+import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.Test;
@@ -13,6 +15,7 @@ import org.libsdl.app.StylusConfig;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
+import org.robolectric.shadows.ShadowSystemClock;
 import static org.junit.Assert.*;
 
 @RunWith(RobolectricTestRunner.class)
@@ -22,11 +25,13 @@ public class StylusSurfaceTest {
     private static final int STYLUS_HOVER_DEVICE_ID = -1398036811;
     private static final int STYLUS_BUTTON_DEVICE_ID = -1398036810;
 
+    private static final int BUTTON_PRIMARY = 1 << 0;
     private static final int BUTTON_SECONDARY = 1 << 1;
     private static final int BUTTON_STYLUS_PRIMARY = 1 << 5;
 
     private static final int ACTION_BUTTON_PRESS = 11;
     private static final int ACTION_BUTTON_RELEASE = 12;
+    private static final int KEYCODE_STYLUS_BUTTON_PRIMARY = 308;
 
     static final class StylusRecord {
         final int deviceId;
@@ -81,6 +86,11 @@ public class StylusSurfaceTest {
 
     private static MotionEvent make(int action, int[] ids, int[] tools,
                                     float[] xs, float[] ys, int buttonState, int source) {
+        return make(7, action, ids, tools, xs, ys, buttonState, source);
+    }
+
+    private static MotionEvent make(int deviceId, int action, int[] ids, int[] tools,
+                                    float[] xs, float[] ys, int buttonState, int source) {
         MotionEvent.PointerProperties[] props = new MotionEvent.PointerProperties[ids.length];
         MotionEvent.PointerCoords[] coords = new MotionEvent.PointerCoords[ids.length];
         for (int i = 0; i < ids.length; ++i) {
@@ -93,7 +103,7 @@ public class StylusSurfaceTest {
             coords[i].pressure = 1;
         }
         return MotionEvent.obtain(0, 10, action, ids.length, props, coords, 0, buttonState,
-                1, 1, 7, 0, source, 0);
+                1, 1, deviceId, 0, source, 0);
     }
 
     private static MotionEvent pen(int action, float x, float y) {
@@ -179,6 +189,7 @@ public class StylusSurfaceTest {
         assertEquals(1, surface.count(STYLUS_BUTTON_DEVICE_ID, MotionEvent.ACTION_DOWN));
 
         // A new press after release works again.
+        ShadowSystemClock.advanceBy(Duration.ofMillis(200));
         sendGeneric(surface, pen(ACTION_BUTTON_PRESS, 300, 210, BUTTON_STYLUS_PRIMARY));
         assertEquals(2, surface.count(STYLUS_BUTTON_DEVICE_ID, MotionEvent.ACTION_DOWN));
 
@@ -203,15 +214,93 @@ public class StylusSurfaceTest {
         assertEquals(1, surface.count(STYLUS_BUTTON_DEVICE_ID, MotionEvent.ACTION_DOWN));
     }
 
-    @Test public void sideButtonDuringContactIsIgnored() {
+    @Test public void sideButtonDuringYoungContactCancelsStrokeAndClicks() {
         Surface surface = new Surface(RuntimeEnvironment.getApplication());
         send(surface, pen(MotionEvent.ACTION_DOWN, 250, 200));
         sendGeneric(surface, pen(ACTION_BUTTON_PRESS, 250, 200, BUTTON_STYLUS_PRIMARY));
+
+        assertEquals(1, surface.count(STYLUS_BUTTON_DEVICE_ID, MotionEvent.ACTION_DOWN));
+        // The contact stroke is cancelled (negative pressure) and never clicks.
+        assertEquals(1, surface.count(STYLUS_TOUCH_DEVICE_ID, MotionEvent.ACTION_UP));
+        assertEquals(-1f, surface.events.get(surface.events.size() - 1).pressure, 0);
+
+        // The real pen-up must not create another left click.
+        send(surface, pen(MotionEvent.ACTION_UP, 250, 200));
+        assertEquals(1, surface.count(STYLUS_TOUCH_DEVICE_ID, MotionEvent.ACTION_UP));
+    }
+
+    @Test public void sideButtonAfterGraceKeepsTheStroke() {
+        ShadowSystemClock.advanceBy(Duration.ofMillis(300));
+        Surface surface = new Surface(RuntimeEnvironment.getApplication());
+        send(surface, pen(MotionEvent.ACTION_DOWN, 250, 200));
+        ShadowSystemClock.advanceBy(Duration.ofMillis(300));
+        sendGeneric(surface, pen(ACTION_BUTTON_PRESS, 250, 200, BUTTON_STYLUS_PRIMARY));
+
         assertEquals(0, surface.count(STYLUS_BUTTON_DEVICE_ID, MotionEvent.ACTION_DOWN));
+        assertEquals(0, surface.count(STYLUS_TOUCH_DEVICE_ID, MotionEvent.ACTION_UP));
 
         send(surface, pen(MotionEvent.ACTION_UP, 250, 200));
         assertEquals(1, surface.count(STYLUS_TOUCH_DEVICE_ID, MotionEvent.ACTION_UP));
+    }
+
+    @Test public void stylusButtonKeyProducesOneRightClick() {
+        Surface surface = new Surface(RuntimeEnvironment.getApplication());
+        assertTrue(surface.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KEYCODE_STYLUS_BUTTON_PRIMARY)));
+        assertEquals(1, surface.count(STYLUS_BUTTON_DEVICE_ID, MotionEvent.ACTION_DOWN));
+
+        // Key repeat must not click again.
+        assertTrue(surface.dispatchKeyEvent(new KeyEvent(0, 10, KeyEvent.ACTION_DOWN,
+                KEYCODE_STYLUS_BUTTON_PRIMARY, 1)));
+        assertEquals(1, surface.count(STYLUS_BUTTON_DEVICE_ID, MotionEvent.ACTION_DOWN));
+
+        assertTrue(surface.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KEYCODE_STYLUS_BUTTON_PRIMARY)));
+        assertEquals(1, surface.count(STYLUS_BUTTON_DEVICE_ID, MotionEvent.ACTION_DOWN));
+
+        ShadowSystemClock.advanceBy(Duration.ofMillis(300));
+        assertTrue(surface.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KEYCODE_STYLUS_BUTTON_PRIMARY)));
+        assertEquals(2, surface.count(STYLUS_BUTTON_DEVICE_ID, MotionEvent.ACTION_DOWN));
+    }
+
+    @Test public void pensReportingButtonAsScrollStillClickOncePerBurst() {
+        Surface surface = new Surface(RuntimeEnvironment.getApplication());
+        // Identify the pen device first (device id 7 in `make`).
+        send(surface, pen(MotionEvent.ACTION_DOWN, 250, 200));
+        send(surface, pen(MotionEvent.ACTION_UP, 250, 200));
+
+        sendGeneric(surface, make(MotionEvent.ACTION_SCROLL,
+                new int[]{0}, new int[]{MotionEvent.TOOL_TYPE_MOUSE},
+                new float[]{250}, new float[]{200}, 0, InputDevice.SOURCE_MOUSE));
+        assertEquals(1, surface.count(STYLUS_BUTTON_DEVICE_ID, MotionEvent.ACTION_DOWN));
+
+        // The rest of the scroll burst is the same physical press.
+        sendGeneric(surface, make(MotionEvent.ACTION_SCROLL,
+                new int[]{0}, new int[]{MotionEvent.TOOL_TYPE_MOUSE},
+                new float[]{250}, new float[]{200}, 0, InputDevice.SOURCE_MOUSE));
+        assertEquals(1, surface.count(STYLUS_BUTTON_DEVICE_ID, MotionEvent.ACTION_DOWN));
+
+        ShadowSystemClock.advanceBy(Duration.ofMillis(300));
+        sendGeneric(surface, make(MotionEvent.ACTION_SCROLL,
+                new int[]{0}, new int[]{MotionEvent.TOOL_TYPE_MOUSE},
+                new float[]{250}, new float[]{200}, 0, InputDevice.SOURCE_MOUSE));
+        assertEquals(2, surface.count(STYLUS_BUTTON_DEVICE_ID, MotionEvent.ACTION_DOWN));
+    }
+
+    @Test public void buttonPressWithoutReportedStateStillClicks() {
+        Surface surface = new Surface(RuntimeEnvironment.getApplication());
+        sendGeneric(surface, pen(ACTION_BUTTON_PRESS, 250, 200, 0));
+        assertEquals(1, surface.count(STYLUS_BUTTON_DEVICE_ID, MotionEvent.ACTION_DOWN));
+    }
+
+    @Test public void primaryButtonOnHoverClicksButPrimaryOnTouchDoesNot() {
+        Surface surface = new Surface(RuntimeEnvironment.getApplication());
+        // A tip touch must never be mistaken for the barrel button.
+        send(surface, pen(MotionEvent.ACTION_DOWN, 250, 200, BUTTON_PRIMARY));
         assertEquals(0, surface.count(STYLUS_BUTTON_DEVICE_ID, MotionEvent.ACTION_DOWN));
+        send(surface, pen(MotionEvent.ACTION_UP, 250, 200));
+
+        // While hovering, some pens map the barrel button to BUTTON_PRIMARY.
+        sendGeneric(surface, pen(MotionEvent.ACTION_HOVER_ENTER, 250, 200, BUTTON_PRIMARY));
+        assertEquals(1, surface.count(STYLUS_BUTTON_DEVICE_ID, MotionEvent.ACTION_DOWN));
     }
 
     @Test public void cancellationAndFocusLossAreMarkedRatherThanClicked() {
@@ -282,8 +371,8 @@ public class StylusSurfaceTest {
         Surface surface = new Surface(RuntimeEnvironment.getApplication());
         send(surface, pen(MotionEvent.ACTION_DOWN, 250, 200));
 
-        // Pointer ids are per event: this mouse reuses the pen's id 0.
-        MotionEvent mouseMove = make(MotionEvent.ACTION_MOVE,
+        // Pointer ids are per event: this mouse uses another device and id 0.
+        MotionEvent mouseMove = make(8, MotionEvent.ACTION_MOVE,
                 new int[]{0}, new int[]{MotionEvent.TOOL_TYPE_MOUSE},
                 new float[]{400}, new float[]{300}, 0, InputDevice.SOURCE_MOUSE);
         try { surface.dispatchGenericMotionEvent(mouseMove); }

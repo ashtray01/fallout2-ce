@@ -114,17 +114,17 @@ int main()
         assert(presses(events, 2) == 1);
         assert(events.back().x == 30 && events.back().y == 40);
     }
-    { // Side button during a stroke is ignored: contact has priority.
+    { // Side button during a stroke: the left stroke is discarded and replaced
+      // by exactly one right click. Releasing the pen adds no left-up.
         StylusInput pen;
         pen.begin(10, 10);
-        pen.sideButton(10, 10);
-        auto events = drain(pen, 10);
-        assert(presses(events, 2) == 0);
-        assert(presses(events, 1) == 1);
-        pen.end(10, 10);
-        events = drain(pen);
-        assert(presses(events, 2) == 0);
+        pen.sideButton(20, 20);
+        auto events = drain(pen);
+        assert(presses(events, 2) == 1);
         assert(events.back().buttons == 0);
+        pen.end(30, 30);
+        StylusEvent none;
+        assert(!pen.poll(none));
     }
     { // Test 4: hover moves the absolute pointer without any button.
         StylusInput pen;

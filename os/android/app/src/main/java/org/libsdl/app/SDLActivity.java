@@ -662,6 +662,11 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
         }
 
         int keyCode = event.getKeyCode();
+        // Fallout: barrel buttons of an Android 14+ Bluetooth stylus are key
+        // events. They must become a right click instead of game keyboard input.
+        if (mSurface != null && mSurface.handleStylusButtonKey(event)) {
+            return true;
+        }
         // Ignore certain special keys so they're handled by Android
         if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN ||
             keyCode == KeyEvent.KEYCODE_VOLUME_UP ||
