@@ -387,6 +387,13 @@ void _mouse_info()
         static int prevy;
 
         switch (gesture.type) {
+        case kStylus: {
+            int x;
+            int y;
+            mouseGetPosition(&x, &y);
+            _mouse_simulate_input(gesture.x - x, gesture.y - y, gesture.buttons);
+            break;
+        }
         case kTap:
             if (gesture.numberOfTouches == 1) {
                 _mouse_simulate_input(0, 0, MOUSE_STATE_LEFT_BUTTON_DOWN);

@@ -10,6 +10,7 @@ enum GestureType {
     kTap,
     kLongPress,
     kPan,
+    kStylus,
 };
 
 enum GestureState {
@@ -25,6 +26,7 @@ struct Gesture {
     int numberOfTouches;
     int x;
     int y;
+    int buttons;
 };
 
 void touch_handle_start(SDL_TouchFingerEvent* event);

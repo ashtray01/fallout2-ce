@@ -52,3 +52,15 @@ Before calling a release device-verified, check on the target phone/tablet:
 7. Check fullscreen layout on both phone and tablet and, where available, on a 16 KB emulator/device.
 
 Commercial data stays local under ignored `/Fallout2/`. For the supplied installation, both DAT tables and every compressed entry were validated locally: 23,120 master entries and 7,120 critter entries. All six Windows paths in its configuration were successfully rewritten in a read-only probe. This is not a substitute for device gameplay testing.
+
+## Stylus controls
+
+An Android pen/eraser is identified by tool type and sent through a separate absolute-pointer path. Finger input keeps the upstream trackpad controls.
+
+- Tap: place the cursor at the pen position and issue one left click.
+- Hold still for 500 ms: issue one right click, with no extra left click on release.
+- Move at least 8 game pixels while touching: hold left to drag from the original position; lift to release.
+- Two taps remain two left clicks; a right-click mapping does not delay single taps.
+- Cancellation/focus loss releases input without turning the interrupted stroke into a tap. Palm events during a pen stroke are ignored.
+
+C++ regression tests preserve each press/release edge even when a full tap arrives between frames, and coalesce high-rate motion. Android tests exercise pen coordinates, cancellation and palm routing. Physical pen behavior still needs checking on the target Honor devices.

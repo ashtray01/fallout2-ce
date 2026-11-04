@@ -4,6 +4,7 @@
 #include <stack>
 
 #include "svga.h"
+#include "stylus.h"
 
 namespace fallout {
 
@@ -32,6 +33,7 @@ struct Touch {
     int phase;
 };
 
+static StylusInput stylus;
 static Touch touches[MAX_TOUCHES];
 static Gesture currentGesture;
 static std::stack<Gesture> gestureEventsQueue;
@@ -86,6 +88,16 @@ static TouchLocation touch_get_current_location_centroid(int* indexes, int lengt
 
 void touch_handle_start(SDL_TouchFingerEvent* event)
 {
+    if (event->touchId == kStylusTouchDeviceId) {
+        // Discard an interrupted finger/palm sequence before pen ownership.
+        for (auto& touch : touches) touch.used = false;
+        currentGesture = {};
+        while (!gestureEventsQueue.empty()) gestureEventsQueue.pop();
+        stylus.begin(static_cast<int>(event->x * screenGetWidth()),
+            static_cast<int>(event->y * screenGetHeight()), event->timestamp);
+        return;
+    }
+
     // On iOS `fingerId` is an address of underlying `UITouch` object. When
     // `touchesBegan` is called this object might be reused, but with
     // incresed `tapCount` (which is ignored in this implementation).
@@ -109,6 +121,12 @@ void touch_handle_start(SDL_TouchFingerEvent* event)
 
 void touch_handle_move(SDL_TouchFingerEvent* event)
 {
+    if (event->touchId == kStylusTouchDeviceId) {
+        stylus.move(static_cast<int>(event->x * screenGetWidth()),
+            static_cast<int>(event->y * screenGetHeight()));
+        return;
+    }
+
     int index = find_touch(event->fingerId);
     if (index != -1) {
         Touch* touch = &(touches[index]);
@@ -121,6 +139,12 @@ void touch_handle_move(SDL_TouchFingerEvent* event)
 
 void touch_handle_end(SDL_TouchFingerEvent* event)
 {
+    if (event->touchId == kStylusTouchDeviceId) {
+        stylus.end(static_cast<int>(event->x * screenGetWidth()),
+            static_cast<int>(event->y * screenGetHeight()), event->timestamp, event->pressure < 0.0f);
+        return;
+    }
+
     int index = find_touch(event->fingerId);
     if (index != -1) {
         Touch* touch = &(touches[index]);
@@ -133,6 +157,7 @@ void touch_handle_end(SDL_TouchFingerEvent* event)
 
 void touch_process_gesture()
 {
+    stylus.update(SDL_GetTicks());
     Uint32 sequenceStartTimestamp = -1;
     int sequenceStartIndex = -1;
 
@@ -277,6 +302,16 @@ void touch_process_gesture()
 
 bool touch_get_gesture(Gesture* gesture)
 {
+    StylusEvent pointer;
+    if (stylus.poll(pointer)) {
+        *gesture = {};
+        gesture->type = kStylus;
+        gesture->x = pointer.x;
+        gesture->y = pointer.y;
+        gesture->buttons = pointer.buttons;
+        return true;
+    }
+
     if (gestureEventsQueue.empty()) {
         return false;
     }

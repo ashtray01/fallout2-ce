@@ -11,3 +11,4 @@
 /debug.keystore
 /release-keystore.properties
 /release.keystore
+/build/

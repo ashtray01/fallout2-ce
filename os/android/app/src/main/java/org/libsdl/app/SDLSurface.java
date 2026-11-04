@@ -30,6 +30,13 @@ import android.view.WindowManager;
 public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
     View.OnKeyListener, View.OnTouchListener, SensorEventListener  {
 
+    // Fallout: keep pen input separate from the finger-trackpad recognizer.
+    // Must match kStylusTouchDeviceId in src/stylus.h.
+    private static final int STYLUS_TOUCH_DEVICE_ID = -1398036812;
+    private int stylusPointer = -1;
+    private float stylusX;
+    private float stylusY;
+
     // Sensors
     protected SensorManager mSensorManager;
     protected Display mDisplay;
@@ -90,6 +97,7 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
     // Called when we lose the surface
     @Override
     public void surfaceDestroyed(SurfaceHolder holder) {
+        cancelStylus();
         Log.v("SDL", "surfaceDestroyed()");
 
         // Transition to pause, if needed
@@ -196,6 +204,7 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
     // Touch events
     @Override
     public boolean onTouch(View v, MotionEvent event) {
+        if (handleStylus(event)) return true;
         /* Ref: http://developer.android.com/training/gestures/multi.html */
         int touchDevId = event.getDeviceId();
         final int pointerCount = event.getPointerCount();
@@ -297,6 +306,63 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
 
         return true;
    }
+
+    private boolean handleStylus(MotionEvent event) {
+        int action = event.getActionMasked();
+        int index = event.getActionIndex();
+        int tool = event.getToolType(index);
+        boolean pen = tool == MotionEvent.TOOL_TYPE_STYLUS || tool == MotionEvent.TOOL_TYPE_ERASER;
+        if ((action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN) && pen) {
+            if (stylusPointer != -1) cancelStylus();
+            stylusPointer = event.getPointerId(index);
+            stylusX = event.getX(index) / mWidth;
+            stylusY = event.getY(index) / mHeight;
+            onStylusTouch(stylusPointer,
+                MotionEvent.ACTION_DOWN, stylusX, stylusY, 1.0f);
+            return true;
+        }
+        if (stylusPointer == -1) return pen;
+        if (action == MotionEvent.ACTION_CANCEL) {
+            cancelStylus();
+            return true;
+        }
+        int penIndex = event.findPointerIndex(stylusPointer);
+        if (penIndex < 0) {
+            cancelStylus();
+            return true;
+        }
+        stylusX = event.getX(penIndex) / mWidth;
+        stylusY = event.getY(penIndex) / mHeight;
+        if ((action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_POINTER_UP)
+                && event.getPointerId(index) == stylusPointer) {
+            onStylusTouch(stylusPointer,
+                MotionEvent.ACTION_UP, stylusX, stylusY, 1.0f);
+            stylusPointer = -1;
+        } else if (action == MotionEvent.ACTION_MOVE) {
+            onStylusTouch(stylusPointer,
+                MotionEvent.ACTION_MOVE, stylusX, stylusY, 1.0f);
+        }
+        return true; // Ignore palm/finger events during a pen stroke.
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasWindowFocus) {
+        super.onWindowFocusChanged(hasWindowFocus);
+        if (!hasWindowFocus) cancelStylus();
+    }
+
+    protected void onStylusTouch(int pointerId, int action, float x, float y, float pressure) {
+        SDLActivity.onNativeTouch(STYLUS_TOUCH_DEVICE_ID, pointerId, action, x, y, pressure);
+    }
+
+    private void cancelStylus() {
+        if (stylusPointer != -1) {
+            // Negative pressure marks cancellation; do not turn it into a click.
+            onStylusTouch(stylusPointer,
+                MotionEvent.ACTION_UP, stylusX, stylusY, -1.0f);
+            stylusPointer = -1;
+        }
+    }
 
     // Sensor events
     public void enableSensor(int sensortype, boolean enabled) {

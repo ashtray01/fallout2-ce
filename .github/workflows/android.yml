@@ -38,6 +38,10 @@ jobs:
           test -n "$KEYSTORE" && test -n "$PROPERTIES"
           printf '%s' "$KEYSTORE" | base64 --decode > os/android/release.keystore
           printf '%s' "$PROPERTIES" | base64 --decode > os/android/release-keystore.properties
+      - name: Test stylus gesture ordering
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror tests/stylus_test.cc -o /tmp/stylus-test
+          /tmp/stylus-test
       - name: Test, lint and build
         working-directory: os/android
         run: ./gradlew --no-daemon testDebugUnitTest lintDebug
