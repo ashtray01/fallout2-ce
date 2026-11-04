@@ -94,7 +94,22 @@ void touch_handle_start(SDL_TouchFingerEvent* event)
         currentGesture = {};
         while (!gestureEventsQueue.empty()) gestureEventsQueue.pop();
         stylus.begin(static_cast<int>(event->x * screenGetWidth()),
-            static_cast<int>(event->y * screenGetHeight()), event->timestamp);
+            static_cast<int>(event->y * screenGetHeight()));
+        return;
+    }
+
+    if (event->touchId == kStylusHoverTouchDeviceId) {
+        // Hover only moves the absolute pointer; it never presses a button.
+        stylus.hover(static_cast<int>(event->x * screenGetWidth()),
+            static_cast<int>(event->y * screenGetHeight()));
+        return;
+    }
+
+    if (event->touchId == kStylusButtonTouchDeviceId) {
+        // A side-button edge is a complete right click. Java already performed
+        // edge detection, so a repeated event here is a new physical press.
+        stylus.sideButton(static_cast<int>(event->x * screenGetWidth()),
+            static_cast<int>(event->y * screenGetHeight()));
         return;
     }
 
@@ -127,6 +142,17 @@ void touch_handle_move(SDL_TouchFingerEvent* event)
         return;
     }
 
+    if (event->touchId == kStylusHoverTouchDeviceId) {
+        stylus.hover(static_cast<int>(event->x * screenGetWidth()),
+            static_cast<int>(event->y * screenGetHeight()));
+        return;
+    }
+
+    if (event->touchId == kStylusButtonTouchDeviceId) {
+        // The matching release is handled by `touch_handle_end`.
+        return;
+    }
+
     int index = find_touch(event->fingerId);
     if (index != -1) {
         Touch* touch = &(touches[index]);
@@ -140,8 +166,18 @@ void touch_handle_move(SDL_TouchFingerEvent* event)
 void touch_handle_end(SDL_TouchFingerEvent* event)
 {
     if (event->touchId == kStylusTouchDeviceId) {
+        // Negative pressure is emitted by Android for cancellation/focus loss.
         stylus.end(static_cast<int>(event->x * screenGetWidth()),
-            static_cast<int>(event->y * screenGetHeight()), event->timestamp, event->pressure < 0.0f);
+            static_cast<int>(event->y * screenGetHeight()), event->pressure < 0.0f);
+        return;
+    }
+
+    if (event->touchId == kStylusHoverTouchDeviceId) {
+        // Leaving hover range only stops pointer tracking; no click is made.
+        return;
+    }
+
+    if (event->touchId == kStylusButtonTouchDeviceId) {
         return;
     }
 
@@ -157,7 +193,6 @@ void touch_handle_end(SDL_TouchFingerEvent* event)
 
 void touch_process_gesture()
 {
-    stylus.update(SDL_GetTicks());
     Uint32 sequenceStartTimestamp = -1;
     int sequenceStartIndex = -1;
 

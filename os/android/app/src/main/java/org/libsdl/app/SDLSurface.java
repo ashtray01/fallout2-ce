@@ -30,12 +30,29 @@ import android.view.WindowManager;
 public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
     View.OnKeyListener, View.OnTouchListener, SensorEventListener  {
 
-    // Fallout: keep pen input separate from the finger-trackpad recognizer.
-    // Must match kStylusTouchDeviceId in src/stylus.h.
+    // Fallout: pen input bypasses the finger-trackpad recognizer and drives the
+    // game cursor as an absolute mouse pointer. The three synthetic SDL touch
+    // channels must match src/stylus.h.
     private static final int STYLUS_TOUCH_DEVICE_ID = -1398036812;
+    private static final int STYLUS_HOVER_DEVICE_ID = -1398036811;
+    private static final int STYLUS_BUTTON_DEVICE_ID = -1398036810;
+
+    // MotionEvent stylus button symbols appeared after the minimum SDK. The
+    // numeric values are stable and are inlined by the compiler.
+    private static final int BUTTON_SECONDARY_VALUE = 1 << 1;
+    private static final int BUTTON_STYLUS_PRIMARY_VALUE = 1 << 5;
+    private static final int BUTTON_STYLUS_SECONDARY_VALUE = 1 << 6;
+    private static final int STYLUS_BUTTON_MASK =
+            BUTTON_STYLUS_PRIMARY_VALUE | BUTTON_STYLUS_SECONDARY_VALUE | BUTTON_SECONDARY_VALUE;
+    private static final int ACTION_BUTTON_PRESS_VALUE = 11;
+    private static final int ACTION_BUTTON_RELEASE_VALUE = 12;
+
+    private StylusConfig mStylusConfig = StylusConfig.DEFAULT;
     private int stylusPointer = -1;
     private float stylusX;
     private float stylusY;
+    private boolean stylusHoverActive;
+    private boolean stylusSideButtonDown;
 
     // Sensors
     protected SensorManager mSensorManager;
@@ -60,6 +77,7 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
 
         mDisplay = ((WindowManager)context.getSystemService(Context.WINDOW_SERVICE)).getDefaultDisplay();
         mSensorManager = (SensorManager)context.getSystemService(Context.SENSOR_SERVICE);
+        mStylusConfig = StylusConfig.load(context);
 
         setOnGenericMotionListener(SDLActivity.getMotionListener());
 
@@ -71,6 +89,7 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
     }
 
     public void handlePause() {
+        cancelStylus();
         enableSensor(Sensor.TYPE_ACCELEROMETER, false);
     }
 
@@ -307,61 +326,276 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
         return true;
    }
 
+    // Stylus events
+    //
+    // Android may deliver the same pen MotionEvent through the touch, generic
+    // motion or hover dispatch paths depending on the device and API level.
+    // All three are routed to one handler; the side button uses edge detection,
+    // so one physical press cannot produce two right clicks.
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent event) {
+        if (handleStylus(event)) {
+            return true;
+        }
+        return super.dispatchTouchEvent(event);
+    }
+
+    @Override
+    public boolean dispatchGenericMotionEvent(MotionEvent event) {
+        if (handleStylus(event)) {
+            return true;
+        }
+        return super.dispatchGenericMotionEvent(event);
+    }
+
+    @Override
+    public boolean dispatchHoverEvent(MotionEvent event) {
+        if (handleStylus(event)) {
+            return true;
+        }
+        return super.dispatchHoverEvent(event);
+    }
+
+    private static boolean isPenPointer(MotionEvent event, int pointerIndex) {
+        if (pointerIndex < 0 || pointerIndex >= event.getPointerCount()) {
+            return false;
+        }
+        int toolType = event.getToolType(pointerIndex);
+        if (toolType == MotionEvent.TOOL_TYPE_STYLUS || toolType == MotionEvent.TOOL_TYPE_ERASER) {
+            return true;
+        }
+        if (toolType == MotionEvent.TOOL_TYPE_FINGER) {
+            // Some digitizers merge palm pointers into a stylus-sourced event,
+            // so a finger pointer must never become the pen.
+            return false;
+        }
+        // Devices without a tool type still identify an active pen by source.
+        return (event.getSource() & InputDevice.SOURCE_STYLUS) == InputDevice.SOURCE_STYLUS;
+    }
+
+    private static int findPenPointerIndex(MotionEvent event) {
+        for (int i = 0; i < event.getPointerCount(); ++i) {
+            if (isPenPointer(event, i)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
     private boolean handleStylus(MotionEvent event) {
-        int action = event.getActionMasked();
-        int index = event.getActionIndex();
-        int tool = event.getToolType(index);
-        boolean pen = tool == MotionEvent.TOOL_TYPE_STYLUS || tool == MotionEvent.TOOL_TYPE_ERASER;
-        if ((action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN) && pen) {
-            if (stylusPointer != -1) cancelStylus();
-            stylusPointer = event.getPointerId(index);
-            stylusX = event.getX(index) / mWidth;
-            stylusY = event.getY(index) / mHeight;
-            onStylusTouch(stylusPointer,
-                MotionEvent.ACTION_DOWN, stylusX, stylusY, 1.0f);
+        if (!mStylusConfig.interceptPen()) {
+            return false;
+        }
+
+        final int action = event.getActionMasked();
+        final int index = event.getActionIndex();
+        final boolean strokeActive = stylusPointer != -1;
+
+        // ACTION_MOVE reports every pointer and does not identify the pen, so
+        // its tool type cannot be taken from `getActionIndex()`. Pointer
+        // down/up actions, on the other hand, always refer to the pointer that
+        // actually changed.
+        final boolean pen;
+        int positionIndex = index;
+        if (action == MotionEvent.ACTION_MOVE) {
+            int tracked = strokeActive ? event.findPointerIndex(stylusPointer) : -1;
+            if (tracked >= 0 && !isPenPointer(event, tracked)) {
+                // Pointer ids are per event: a mouse or palm can reuse the id.
+                tracked = -1;
+            }
+            if (tracked < 0 && !strokeActive) {
+                tracked = findPenPointerIndex(event);
+            }
+            pen = tracked >= 0;
+            if (tracked >= 0) {
+                positionIndex = tracked;
+            }
+        } else {
+            pen = isPenPointer(event, index);
+        }
+
+        if (!pen) {
+            if (!strokeActive) {
+                return false; // Fingers, mice and keyboards keep upstream routing.
+            }
+            // While the pen touches the screen, finger pointers are the palm.
+            // A real mouse must stay usable, so only finger-like tools are
+            // rejected and pen input is never blocked forever.
+            int toolType = event.getToolType(index);
+            boolean fingerLike = toolType == MotionEvent.TOOL_TYPE_FINGER
+                    || toolType == MotionEvent.TOOL_TYPE_UNKNOWN;
+            return mStylusConfig.palmRejection && fingerLike;
+        }
+
+        if (!strokeActive
+                && action != MotionEvent.ACTION_DOWN
+                && action != MotionEvent.ACTION_POINTER_DOWN
+                && action != ACTION_BUTTON_PRESS_VALUE
+                && action != ACTION_BUTTON_RELEASE_VALUE) {
+            // No active stroke: hover moves the absolute cursor only.
+            return handleStylusHover(event, action, positionIndex);
+        }
+
+        switch (action) {
+            case MotionEvent.ACTION_DOWN:
+            case MotionEvent.ACTION_POINTER_DOWN: {
+                if (stylusPointer != -1) {
+                    // A lost pen-up must not leave the left button stuck.
+                    cancelStylus();
+                }
+                stylusPointer = event.getPointerId(index);
+                stylusX = event.getX(index) / mWidth;
+                stylusY = event.getY(index) / mHeight;
+                stylusHoverActive = false;
+                updateStylusSideButton(event, event.getX(index), event.getY(index));
+                // Contact presses immediately. Holding the pen then feeds the
+                // engine's repeat timer, which opens the original action menu.
+                sendStylus(STYLUS_TOUCH_DEVICE_ID, stylusPointer, MotionEvent.ACTION_DOWN,
+                        stylusX, stylusY, 1.0f);
+                return true;
+            }
+
+            case MotionEvent.ACTION_MOVE: {
+                int penIndex = event.findPointerIndex(stylusPointer);
+                if (penIndex < 0) {
+                    cancelStylus();
+                    return true;
+                }
+                stylusX = event.getX(penIndex) / mWidth;
+                stylusY = event.getY(penIndex) / mHeight;
+                updateStylusSideButton(event, event.getX(penIndex), event.getY(penIndex));
+                sendStylus(STYLUS_TOUCH_DEVICE_ID, stylusPointer, MotionEvent.ACTION_MOVE,
+                        stylusX, stylusY, clampPressure(event.getPressure(penIndex)));
+                return true;
+            }
+
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_POINTER_UP: {
+                if (event.getPointerId(index) != stylusPointer) {
+                    return true; // A lifted palm must not end the pen stroke.
+                }
+                stylusX = event.getX(index) / mWidth;
+                stylusY = event.getY(index) / mHeight;
+                updateStylusSideButton(event, event.getX(index), event.getY(index));
+                sendStylus(STYLUS_TOUCH_DEVICE_ID, stylusPointer, MotionEvent.ACTION_UP,
+                        stylusX, stylusY, 1.0f);
+                stylusPointer = -1;
+                return true;
+            }
+
+            case MotionEvent.ACTION_CANCEL:
+                cancelStylus();
+                return true;
+
+            case ACTION_BUTTON_PRESS_VALUE:
+            case ACTION_BUTTON_RELEASE_VALUE:
+                // Side button while hovering. `getButtonState` already reports
+                // the state after the edge, so no extra press tracking is needed.
+                updateStylusSideButton(event, event.getX(index), event.getY(index));
+                return true;
+
+            case MotionEvent.ACTION_HOVER_ENTER:
+            case MotionEvent.ACTION_HOVER_MOVE:
+            case MotionEvent.ACTION_HOVER_EXIT:
+                return handleStylusHover(event, action, positionIndex);
+
+            default:
+                return true;
+        }
+    }
+
+    private boolean handleStylusHover(MotionEvent event, int action, int index) {
+        if (!mStylusConfig.hover) {
+            return true; // Consume pen events without moving the cursor.
+        }
+
+        float x = event.getX(index);
+        float y = event.getY(index);
+        if (action == MotionEvent.ACTION_HOVER_EXIT) {
+            if (stylusHoverActive) {
+                sendStylus(STYLUS_HOVER_DEVICE_ID, 0, MotionEvent.ACTION_UP,
+                        x / mWidth, y / mHeight, 1.0f);
+                stylusHoverActive = false;
+            }
             return true;
         }
-        if (stylusPointer == -1) return pen;
-        if (action == MotionEvent.ACTION_CANCEL) {
-            cancelStylus();
-            return true;
+
+        if (action == MotionEvent.ACTION_HOVER_ENTER || action == MotionEvent.ACTION_HOVER_MOVE) {
+            stylusX = x / mWidth;
+            stylusY = y / mHeight;
+            stylusHoverActive = true;
+            sendStylus(STYLUS_HOVER_DEVICE_ID, 0, MotionEvent.ACTION_MOVE,
+                    stylusX, stylusY, 1.0f);
         }
-        int penIndex = event.findPointerIndex(stylusPointer);
-        if (penIndex < 0) {
-            cancelStylus();
-            return true;
+        return true;
+    }
+
+    private void updateStylusSideButton(MotionEvent event, float x, float y) {
+        boolean pressed = (event.getButtonState() & STYLUS_BUTTON_MASK) != 0;
+        if (pressed == stylusSideButtonDown) {
+            // Duplicate delivery of one physical edge, or a held button.
+            return;
         }
-        stylusX = event.getX(penIndex) / mWidth;
-        stylusY = event.getY(penIndex) / mHeight;
-        if ((action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_POINTER_UP)
-                && event.getPointerId(index) == stylusPointer) {
-            onStylusTouch(stylusPointer,
-                MotionEvent.ACTION_UP, stylusX, stylusY, 1.0f);
+        stylusSideButtonDown = pressed;
+
+        if (!pressed || !mStylusConfig.sideButtonRightClick) {
+            return;
+        }
+
+        if (stylusPointer != -1) {
+            // Priority rule: an active pen stroke wins. A click or a drag in
+            // progress is never rewritten by the side button.
+            return;
+        }
+
+        float normalizedX = x / mWidth;
+        float normalizedY = y / mHeight;
+        // A complete press/release pair per edge: holding the physical button
+        // cannot repeat the cursor switch.
+        sendStylus(STYLUS_BUTTON_DEVICE_ID, 0, MotionEvent.ACTION_DOWN,
+                normalizedX, normalizedY, 1.0f);
+        sendStylus(STYLUS_BUTTON_DEVICE_ID, 0, MotionEvent.ACTION_UP,
+                normalizedX, normalizedY, 1.0f);
+    }
+
+    private static float clampPressure(float pressure) {
+        return pressure > 1.0f ? 1.0f : pressure;
+    }
+
+    private void sendStylus(int deviceId, int pointerId, int action, float x, float y, float pressure) {
+        onStylusTouch(deviceId, pointerId, action, x, y, pressure);
+    }
+
+    protected void onStylusTouch(int deviceId, int pointerId, int action, float x, float y, float pressure) {
+        SDLActivity.onNativeTouch(deviceId, pointerId, action, x, y, pressure);
+    }
+
+    private void cancelStylus() {
+        if (stylusPointer != -1) {
+            // Negative pressure marks cancellation; it never becomes a click.
+            sendStylus(STYLUS_TOUCH_DEVICE_ID, stylusPointer, MotionEvent.ACTION_UP,
+                    stylusX, stylusY, -1.0f);
             stylusPointer = -1;
-        } else if (action == MotionEvent.ACTION_MOVE) {
-            onStylusTouch(stylusPointer,
-                MotionEvent.ACTION_MOVE, stylusX, stylusY, 1.0f);
         }
-        return true; // Ignore palm/finger events during a pen stroke.
+        if (stylusHoverActive) {
+            sendStylus(STYLUS_HOVER_DEVICE_ID, 0, MotionEvent.ACTION_UP,
+                    stylusX, stylusY, 1.0f);
+            stylusHoverActive = false;
+        }
+        // The physical button state is unknown after cancellation. Releasing
+        // it here means the next edge is treated as a new press.
+        stylusSideButtonDown = false;
+    }
+
+    /** Overrides pen configuration; used by input tests and a future settings UI. */
+    protected void setStylusConfig(StylusConfig config) {
+        mStylusConfig = config;
     }
 
     @Override
     public void onWindowFocusChanged(boolean hasWindowFocus) {
         super.onWindowFocusChanged(hasWindowFocus);
         if (!hasWindowFocus) cancelStylus();
-    }
-
-    protected void onStylusTouch(int pointerId, int action, float x, float y, float pressure) {
-        SDLActivity.onNativeTouch(STYLUS_TOUCH_DEVICE_ID, pointerId, action, x, y, pressure);
-    }
-
-    private void cancelStylus() {
-        if (stylusPointer != -1) {
-            // Negative pressure marks cancellation; do not turn it into a click.
-            onStylusTouch(stylusPointer,
-                MotionEvent.ACTION_UP, stylusX, stylusY, -1.0f);
-            stylusPointer = -1;
-        }
     }
 
     // Sensor events

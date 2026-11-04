@@ -55,12 +55,37 @@ Commercial data stays local under ignored `/Fallout2/`. For the supplied install
 
 ## Stylus controls
 
-An Android pen/eraser is identified by tool type and sent through a separate absolute-pointer path. Finger input keeps the upstream trackpad controls.
+An Android pen/eraser is identified by tool type (or by `SOURCE_STYLUS`) and sent through a separate absolute-pointer path. Finger input keeps the upstream trackpad controls; a Bluetooth mouse and the keyboard are not affected.
 
-- Tap: place the cursor at the pen position and issue one left click.
-- Hold still for 500 ms: issue one right click, with no extra left click on release.
-- Move at least 8 game pixels while touching: hold left to drag from the original position; lift to release.
-- Two taps remain two left clicks; a right-click mapping does not delay single taps.
-- Cancellation/focus loss releases input without turning the interrupted stroke into a tap. Palm events during a pen stroke are ignored.
+The pen drives the game cursor with the same mouse state stream a desktop mouse produces. It does not synthesize Android events at the OS level and needs no root access.
 
-C++ regression tests preserve each press/release edge even when a full tap arrives between frames, and coalesce high-rate motion. Android tests exercise pen coordinates, cancellation and palm routing. Physical pen behavior still needs checking on the target Honor devices.
+- **Hover** (`ACTION_HOVER_ENTER`/`MOVE`/`EXIT`): the game cursor follows the pen tip without pressing a button. Hovering over an object shows its default action and information exactly as on PC.
+- **Tap** (`ACTION_DOWN`/`MOVE`/`UP`): the left button is pressed immediately at the pen position and released on lift, so a tap is one normal left click and a drag holds the left button.
+- **Side button**: one physical press is exactly one right click. `BUTTON_STYLUS_PRIMARY`, `BUTTON_STYLUS_SECONDARY`, and devices that translate the pen button to `BUTTON_SECONDARY` are all accepted. Right click cycles the original cursors: Movement → Command → Movement outside combat and Movement → Command → Targeting → Movement in combat. The engine still decides whether Targeting is allowed (weapons, combat, active item); the mod does not force it.
+- **Hold** (about 250 ms, the engine's own `BUTTON_REPEAT_TIME`): the left button stays held, so Fallout's original action menu opens. Moving the pen up or down while still touching highlights the original menu entries; lifting the pen executes the selected action. There is no extra synthetic click after the menu closes.
+- **Context menus** in the inventory, trading and other screens use the same mouse sequence and keep working.
+- **Palm rejection**: while a pen stroke is active, finger pointers are ignored. The pen is never blocked permanently: cancellation, focus loss, backgrounding and surface destruction release the button, and finger input resumes immediately afterwards.
+- **Absolute positioning**: `MotionEvent` coordinates are normalised by the current surface size, so letterboxing, the internal Fallout resolution and both orientations are handled by the existing rendering transform.
+
+The side button has one priority rule: while the pen tip is touching the screen, side-button edges are tracked but do not issue a right click. This prevents an in-progress tap or drag from turning into an unrelated action. Press the side button while the pen is in hover range to switch cursors.
+
+Some pens do not expose hover or a side button to Android at all, and some digitizers translate the button to `BUTTON_SECONDARY` instead of `BUTTON_STYLUS_PRIMARY`; the code supports both cases, but the hardware cannot be emulated. The arrow/hex cursor in game always follows the pen when absolute positioning is available.
+
+### Pen input configuration
+
+There is no input settings screen in the app. Defaults are defined in `StylusConfig` and are the recommended values:
+
+| Key | Default | Effect |
+| --- | --- | --- |
+| `stylus_enabled` | `true` | Master switch for the pen path. When off, the pen falls back to the finger/trackpad controls. |
+| `stylus_absolute_positioning` | `true` | Absolute cursor positioning. When off, the pen uses the finger/trackpad path. |
+| `stylus_side_button_right_click` | `true` | Maps the side button to a right click. |
+| `stylus_hover_enabled` | `true` | Follows the pen in hover range. |
+| `stylus_palm_rejection` | `true` | Ignores finger pointers during a pen stroke. |
+
+The values are read once from the `stylus` `SharedPreferences` file with these defaults; a future settings screen can override them without touching the input code.
+
+C++ regression tests cover press/hold/release ordering, the action-menu hold, hover, cancellation, drag and side-button edges. Robolectric tests exercise absolute coordinates, side-button deduplication, palm routing and backward compatibility.
+
+Physical pen behavior still needs checking on the target tablets; see [the manual stylus checklist](stylus-manual-test.md).
+

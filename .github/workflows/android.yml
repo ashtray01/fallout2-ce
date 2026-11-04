@@ -3,6 +3,7 @@ name: Android fork
 on:
   push:
     branches: [main, android-fixes]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
@@ -75,3 +76,41 @@ jobs:
       - name: Remove signing material
         if: always()
         run: rm -f os/android/release.keystore os/android/release-keystore.properties
+
+  publish:
+    name: Publish Android release
+    needs: android
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: fallout2-ce-android-release
+          path: dist
+      - name: Create GitHub release with the verified APK
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TITLE: Fallout 2 CE — Android Stylus Controls
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          short="${version%%-*}"
+          apk="fallout2-ce-android-${short}.apk"
+          mv dist/app-release.apk "$apk"
+          sha256sum "$apk" > SHA256SUMS.txt
+          notes="docs/release-notes/${version}.md"
+          if [ -f "$notes" ]; then
+            gh release create "$GITHUB_REF_NAME" "$apk" SHA256SUMS.txt \
+              --title "$RELEASE_TITLE" \
+              --notes-file "$notes" \
+              --verify-tag
+          else
+            gh release create "$GITHUB_REF_NAME" "$apk" SHA256SUMS.txt \
+              --title "$RELEASE_TITLE" \
+              --generate-notes \
+              --verify-tag
+          fi
+          gh release view "$GITHUB_REF_NAME" --json url,assets
